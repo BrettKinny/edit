@@ -874,6 +874,11 @@ vi = "Xem"
 zh-hans = "视图"
 zh-hant = "檢視"
 
+# Toggles the menubar at the top of the screen.
+# When unchecked, Alt/F10 still brings it back temporarily.
+[ViewMenuBar]
+en = "Menu Bar"
+
 [ViewFocusStatusbar]
 en = "Focus Statusbar"
 ar = "تركيز شريط الحالة"

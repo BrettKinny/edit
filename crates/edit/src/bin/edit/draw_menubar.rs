@@ -2,15 +2,29 @@
 // Licensed under the MIT License.
 
 use edit::helpers::*;
-use edit::input::{kbmod, vk};
+use edit::input::{InputKey, kbmod, vk};
 use edit::tui::*;
 use stdext::arena_format;
 
 use crate::localization::*;
-use crate::settings::Settings;
+use crate::settings::{MenuBarVisibility, Settings};
 use crate::state::*;
 
+/// The accelerators of the top level menus below. Kept in sync manually,
+/// so that [`wants_reveal`] knows which keys bring a hidden menubar back.
+const MENU_ACCELERATORS: [InputKey; 4] = [vk::F, vk::E, vk::V, vk::H];
+
 pub fn draw_menubar(ctx: &mut Context, state: &mut State) {
+    if state.menu_bar_visibility != MenuBarVisibility::Classic && !state.menu_bar_revealed {
+        // A hidden menubar isn't part of the tree, so it can't consume its own
+        // accelerators. We peek at the input instead and unhide within the very same
+        // pass, because settling passes are given no input and the key would be lost.
+        if state.menu_bar_visibility != MenuBarVisibility::Toggle || !wants_reveal(ctx) {
+            return;
+        }
+        state.menu_bar_revealed = true;
+    }
+
     ctx.menubar_begin();
     ctx.attr_background_rgba(state.menubar_color_bg);
     ctx.attr_foreground_rgba(state.menubar_color_fg);
@@ -36,6 +50,26 @@ pub fn draw_menubar(ctx: &mut Context, state: &mut State) {
         }
     }
     ctx.menubar_end();
+
+    // Collapse again as soon as the menubar loses focus. That covers Escape,
+    // activating an item, clicking into the editor, opening a modal, etc.
+    if state.menu_bar_revealed && !ctx.contains_focus() {
+        state.menu_bar_revealed = false;
+        ctx.needs_rerender();
+    }
+}
+
+/// Returns true if the pending input asks for a hidden menubar to be shown.
+/// Doesn't consume the input, so that the menubar we're about to draw
+/// can act on it as usual.
+fn wants_reveal(ctx: &Context) -> bool {
+    let Some(key) = ctx.keyboard_input() else {
+        return false;
+    };
+    // Same as in `Context::menubar_menu_begin`: macOS has no Alt accelerators.
+    key == vk::F10
+        || (!cfg!(any(target_os = "macos", target_os = "ios"))
+            && MENU_ACCELERATORS.iter().any(|&a| key == kbmod::ALT | a))
 }
 
 fn draw_menu_file(ctx: &mut Context, state: &mut State) {
@@ -140,6 +174,15 @@ fn draw_menu_view(ctx: &mut Context, state: &mut State) {
             tb.set_word_wrap(!word_wrap);
             ctx.needs_rerender();
         }
+    }
+
+    let menu_bar = state.menu_bar_visibility == MenuBarVisibility::Classic;
+    if ctx.menubar_menu_checkbox(loc(LocId::ViewMenuBar), 'M', vk::NULL, menu_bar) {
+        // Unchecking hides the menubar, but leaves Alt/F10 to bring it back.
+        // Otherwise there'd be no way to check it again.
+        state.menu_bar_visibility =
+            if menu_bar { MenuBarVisibility::Toggle } else { MenuBarVisibility::Classic };
+        ctx.needs_rerender();
     }
 
     ctx.menubar_menu_end();

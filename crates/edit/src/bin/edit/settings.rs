@@ -9,9 +9,23 @@ use stdext::arena_format;
 
 use crate::apperr;
 
+/// Controls whether the menubar occupies the top row of the screen.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum MenuBarVisibility {
+    /// The menubar is always visible.
+    #[default]
+    Classic,
+    /// The menubar is hidden, but Alt+<accelerator> and F10 bring it back
+    /// until it loses focus again.
+    Toggle,
+    /// The menubar is never visible.
+    Hidden,
+}
+
 pub struct Settings {
     pub path: PathBuf,
     pub file_associations: Vec<(String, &'static Language)>,
+    pub menu_bar_visibility: MenuBarVisibility,
 }
 
 struct SettingsCell(SemiRefCell<Settings>);
@@ -28,7 +42,11 @@ impl Settings {
     }
 
     const fn new() -> Self {
-        Settings { path: PathBuf::new(), file_associations: Vec::new() }
+        Settings {
+            path: PathBuf::new(),
+            file_associations: Vec::new(),
+            menu_bar_visibility: MenuBarVisibility::Classic,
+        }
     }
 
     pub fn borrow() -> Ref<'static, Settings> {
@@ -80,6 +98,15 @@ impl Settings {
 
                 self.file_associations.push((key.to_string(), language));
             }
+        }
+
+        if let Some(v) = root.get_str("window.menuBarVisibility") {
+            self.menu_bar_visibility = match v {
+                "classic" => MenuBarVisibility::Classic,
+                "toggle" => MenuBarVisibility::Toggle,
+                "hidden" => MenuBarVisibility::Hidden,
+                _ => return Err(apperr::Error::SettingsInvalid("window.menuBarVisibility")),
+            };
         }
 
         Ok(())

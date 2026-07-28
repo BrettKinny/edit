@@ -83,6 +83,8 @@ fn run() -> apperr::Result<()> {
 
     handle_stdin(&mut state)?;
 
+    state.menu_bar_visibility = Settings::borrow().menu_bar_visibility;
+
     // Switch the terminal to raw mode which prevents the user from pressing Ctrl+C.
     // `handle_args` may want to print a help message (must not fail),
     // and reads files (may hang; should be cancelable with Ctrl+C).
