@@ -1,0 +1,178 @@
+// Highlights the contents of an interpolation hole, `{ ... }`, in an
+// interpolated string. The caller has already consumed the opening brace.
+// Returns with the closing brace consumed, if it was found on this line.
+fn csharp_interpolation() {
+    loop {
+        if /(\})/ {
+            yield $1 as other;
+            return;
+        } else if /[^}:,]+/ {
+            // The expression itself. We don't recurse into it, because a hole
+            // may contain another string, which may contain another hole, ...
+            yield constant.language;
+        } else if /,\s*[^}:]+/ {
+            // Alignment specifier, e.g. `,-10`.
+            yield constant.numeric;
+        } else if /:[^}]+/ {
+            // Format specifier, e.g. `:D2`.
+            yield constant.numeric;
+        } else {
+            // Unterminated hole. Let the caller resume string highlighting.
+            return;
+        }
+    }
+}
+
+#[display_name = "C#"]
+#[path = "**/*.cs"]
+#[path = "**/*.csx"]
+pub fn csharp() {
+    // Preprocessor directives own the entire line.
+    if /\s*#\s*(?:define|elif|else|endif|endregion|error|if|line|nullable|pragma|region|undef|warning)\>.*/ {
+        yield meta.preprocessor;
+        return;
+    }
+
+    // Attribute lists are only recognized at the start of a line. Matching
+    // `[Name` inside the token loop would also underline ordinary indexing
+    // such as `items[Count]`, which is far more common than attributes.
+    if /\s*\[(?:assembly:|module:|return:)?\s*([A-Z][\w.]*)/ {
+        yield $1 as markup.link;
+    }
+
+    until /$/ {
+        yield other;
+
+        if /\/\/.*/ {
+            yield comment;
+        } else if /\/\*/ {
+            loop {
+                yield comment;
+                await input;
+                if /\*\// {
+                    yield comment;
+                    break;
+                }
+            }
+        } else if /\$+"{3,}/ {
+            // Interpolated raw string. LSH cannot retain the delimiter length
+            // or dollar count, so keep the whole literal string-colored.
+            loop {
+                yield string;
+                if /"{3,}/ {
+                    yield string;
+                    break;
+                } else if /[^"]+/ {
+                } else if /"+/ {
+                }
+                await input;
+            }
+        } else if /"{3,}/ {
+            // Raw string literal. Accept any run of 3+ quotes as the closer;
+            // this avoids leaving extra delimiter quotes as a new string.
+            loop {
+                yield string;
+                if /"{3,}/ {
+                    yield string;
+                    break;
+                } else if /[^"]+/ {
+                } else if /"+/ {
+                }
+                await input;
+            }
+        } else if /(?:\$@|@\$)"/ {
+            // Interpolated verbatim string, `$@"..."` or `@$"..."`.
+            // Verbatim strings span lines and escape quotes by doubling them.
+            loop {
+                yield string;
+                if /""/ {
+                } else if /\{\{/ {
+                } else if /\}\}/ {
+                } else if /(\{)/ {
+                    yield $1 as other;
+                    csharp_interpolation();
+                    yield string;
+                } else if /"/ {
+                    yield string;
+                    break;
+                }
+                await input;
+            }
+        } else if /@"/ {
+            // Verbatim string, `@"..."`. No escapes other than `""`.
+            loop {
+                yield string;
+                if /""/ {
+                } else if /"/ {
+                    yield string;
+                    break;
+                }
+                await input;
+            }
+        } else if /\$"/ {
+            // Interpolated string, `$"..."`.
+            until /$/ {
+                yield string;
+                if /\\./ {
+                } else if /\{\{/ {
+                } else if /\}\}/ {
+                } else if /(\{)/ {
+                    yield $1 as other;
+                    csharp_interpolation();
+                    yield string;
+                } else if /"/ {
+                    yield string;
+                    break;
+                }
+                await input;
+            }
+        } else if /"/ {
+            until /$/ {
+                yield string;
+                if /\\./ {}
+                else if /"/ { yield string; break; }
+                await input;
+            }
+        } else if /'/ {
+            // Character literal.
+            until /$/ {
+                yield string;
+                if /\\./ {}
+                else if /'/ { yield string; break; }
+                await input;
+            }
+        } else if /@\w+/ {
+            // Verbatim identifiers may use reserved words, e.g. `@class`.
+        } else if /(?:await|break|case|catch|continue|default|do|else|finally|for|foreach|goto|if|return|switch|throw|try|when|while|yield)\>/ {
+            yield keyword.control;
+        } else if /(?:abstract|ascending|async|add|alias|allows|and|as|base|bool|byte|by|char|checked|class|const|decimal|delegate|descending|double|dynamic|equals|enum|event|explicit|extension|extern|field|file|fixed|float|from|get|global|group|implicit|internal|interface|into|init|int|in|is|join|let|lock|long|managed|namespace|nameof|new|nint|notnull|not|nuint|object|on|operator|orderby|override|or|out|params|partial|private|protected|public|readonly|record|ref|remove|required|sbyte|scoped|sealed|select|set|short|sizeof|stackalloc|static|string|struct|this|typeof|unchecked|unmanaged|unsafe|ushort|using|uint|ulong|value|var|virtual|void|volatile|where|with)\>/ {
+            yield keyword.other;
+        } else if /(?:false|null|true)\>/ {
+            yield constant.language;
+        } else if /-?0[xX][\da-fA-F_]+(?:[uU][lL]?|[lL][uU]?)?/ {
+            if /\w+/ {
+                // Invalid numeric literal
+            } else {
+                yield constant.numeric;
+            }
+        } else if /-?0[bB][01_]+(?:[uU][lL]?|[lL][uU]?)?/ {
+            if /\w+/ {
+                // Invalid numeric literal
+            } else {
+                yield constant.numeric;
+            }
+        } else if /-?(?:[\d_]+\.?[\d_]*|\.[\d_]+)(?:[eE][+-]?[\d_]+)?(?:[uU][lL]?|[lL][uU]?|[fFdDmM])?/ {
+            if /\w+/ {
+                // Invalid numeric literal
+            } else {
+                yield constant.numeric;
+            }
+        } else if /(\w+)\s*\(/ {
+            yield $1 as method;
+        } else if /\w+/ {
+            // Gobble word chars to align the next iteration on a word boundary.
+        }
+
+        yield other;
+    }
+}
