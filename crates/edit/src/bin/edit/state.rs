@@ -15,6 +15,7 @@ use edit::{buffer, icu};
 use crate::apperr;
 use crate::documents::DocumentManager;
 use crate::localization::*;
+use crate::settings::MenuBarVisibility;
 
 #[repr(transparent)]
 pub struct FormatApperr(apperr::Error);
@@ -133,6 +134,10 @@ pub struct OscTitleFileStatus {
 pub struct State {
     pub menubar_color_bg: StraightRgba,
     pub menubar_color_fg: StraightRgba,
+    /// Mirrors `window.menuBarVisibility`, but the View menu can change it for this session.
+    pub menu_bar_visibility: MenuBarVisibility,
+    /// Whether a hidden menubar is temporarily shown. Reset once it loses focus.
+    pub menu_bar_revealed: bool,
 
     pub documents: DocumentManager,
 
@@ -184,6 +189,8 @@ impl State {
         Ok(Self {
             menubar_color_bg: StraightRgba::zero(),
             menubar_color_fg: StraightRgba::zero(),
+            menu_bar_visibility: MenuBarVisibility::Classic,
+            menu_bar_revealed: false,
 
             documents: Default::default(),
 
