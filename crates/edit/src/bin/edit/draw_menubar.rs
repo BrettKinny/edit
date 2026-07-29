@@ -15,6 +15,24 @@ use crate::state::*;
 const MENU_ACCELERATORS: [InputKey; 4] = [vk::F, vk::E, vk::V, vk::H];
 
 pub fn draw_menubar(ctx: &mut Context, state: &mut State) {
+    // Show/hide outright. This is handled before the early return below, because a hidden
+    // menubar isn't part of the tree and so can't consume its own shortcuts. Consuming
+    // matters for Ctrl+M in particular: terminals encode it as Return unless they speak
+    // CSI-u, and an unconsumed Return would insert a newline into the document.
+    let mut wants_focus = false;
+    if ctx.consume_shortcut(vk::F10) || ctx.consume_shortcut(kbmod::CTRL | vk::M) {
+        state.menu_bar_revealed = false;
+        state.menu_bar_visibility = if state.menu_bar_visibility == MenuBarVisibility::Classic {
+            MenuBarVisibility::Toggle
+        } else {
+            // Showing it also moves focus there, so the keyboard can reach the menus
+            // right away. That preserves what F10 did when the menubar was always visible.
+            wants_focus = true;
+            MenuBarVisibility::Classic
+        };
+        ctx.needs_rerender();
+    }
+
     if state.menu_bar_visibility != MenuBarVisibility::Classic && !state.menu_bar_revealed {
         // A hidden menubar isn't part of the tree, so it can't consume its own
         // accelerators. We peek at the input instead and unhide within the very same
@@ -29,12 +47,10 @@ pub fn draw_menubar(ctx: &mut Context, state: &mut State) {
     ctx.attr_background_rgba(state.menubar_color_bg);
     ctx.attr_foreground_rgba(state.menubar_color_fg);
     {
-        let contains_focus = ctx.contains_focus();
-
         if ctx.menubar_menu_begin(loc(LocId::File), 'F') {
             draw_menu_file(ctx, state);
         }
-        if !contains_focus && ctx.consume_shortcut(vk::F10) {
+        if wants_focus {
             ctx.steal_focus();
         }
         if state.documents.active().is_some() {
@@ -177,9 +193,9 @@ fn draw_menu_view(ctx: &mut Context, state: &mut State) {
     }
 
     let menu_bar = state.menu_bar_visibility == MenuBarVisibility::Classic;
-    if ctx.menubar_menu_checkbox(loc(LocId::ViewMenuBar), 'M', vk::NULL, menu_bar) {
-        // Unchecking hides the menubar, but leaves Alt/F10 to bring it back.
-        // Otherwise there'd be no way to check it again.
+    if ctx.menubar_menu_checkbox(loc(LocId::ViewMenuBar), 'M', kbmod::CTRL | vk::M, menu_bar) {
+        // Unchecking hides the menubar, but leaves F10/Ctrl+M and the Alt
+        // accelerators to bring it back. Otherwise there'd be no way to check it again.
         state.menu_bar_visibility =
             if menu_bar { MenuBarVisibility::Toggle } else { MenuBarVisibility::Classic };
         ctx.needs_rerender();

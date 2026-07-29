@@ -386,6 +386,15 @@ impl<'input> Iterator for Stream<'_, '_, 'input> {
                             }
                         }
                         'Z' => return Some(Input::Keyboard(kbmod::SHIFT | vk::TAB)),
+                        'u' => {
+                            // CSI <codepoint> ; <modifiers> u, as sent by terminals speaking the
+                            // kitty keyboard protocol (and by xterm's modifyOtherKeys). Unlike the
+                            // legacy encodings, this can express chords that collide with control
+                            // characters, such as Ctrl+M versus Return.
+                            if let Some(key) = Self::key_from_codepoint(csi.params[0]) {
+                                return Some(Input::Keyboard(key | Self::parse_modifiers(csi)));
+                            }
+                        }
                         '~' => {
                             const LUT: [u8; 35] = [
                                 0,
@@ -529,6 +538,25 @@ impl<'input> Stream<'_, '_, 'input> {
         self.parser.x10_mouse_len = 0;
 
         Self::parse_xterm_mouse(&[b, x, y], 'M')
+    }
+
+    /// Maps a CSI-u codepoint onto a virtual key.
+    ///
+    /// The codepoint is the key as it would be without modifiers, so unlike
+    /// [`InputKey::from_ascii`] the letter case carries no Shift information --
+    /// that arrives separately in the modifier parameter.
+    fn key_from_codepoint(codepoint: u16) -> Option<InputKey> {
+        match codepoint {
+            0x08 | 0x7F => Some(vk::BACK),
+            0x09 => Some(vk::TAB),
+            0x0D => Some(vk::RETURN),
+            0x1B => Some(vk::ESCAPE),
+            0x20 => Some(vk::SPACE),
+            0x30..=0x39 => Some(InputKey::new(codepoint as u32)), // 0-9
+            0x61..=0x7A => Some(InputKey::new(codepoint as u32 & !0x20)), // a-z, shifted to A-Z
+            0x41..=0x5A => Some(InputKey::new(codepoint as u32)), // A-Z
+            _ => None,
+        }
     }
 
     fn parse_modifiers(csi: &vt::Csi) -> InputKeyMod {
