@@ -625,3 +625,40 @@ impl<'input> Stream<'_, '_, 'input> {
         Some(Input::Mouse(mouse))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Feeds `input` through both parsers and collects the keys it produces.
+    /// Returns the raw values, because [`InputKey`] doesn't implement [`Debug`].
+    fn keys(input: &str) -> Vec<u32> {
+        let mut vt_parser = vt::Parser::new();
+        let mut input_parser = Parser::new();
+        let stream = input_parser.parse(vt_parser.parse(input));
+        let mut keys = Vec::new();
+        for inp in stream {
+            if let Input::Keyboard(key) = inp {
+                keys.push(key.value());
+            }
+        }
+        keys
+    }
+
+    #[test]
+    fn test_csi_u() {
+        // The whole point of CSI-u: Ctrl+M is distinguishable from Return.
+        assert_eq!(keys("\x1b[109;5u"), [(kbmod::CTRL | vk::M).value()]);
+        assert_eq!(keys("\r"), [vk::RETURN.value()]);
+        // Modifiers are optional, and the case of the codepoint isn't Shift.
+        assert_eq!(keys("\x1b[97u\x1b[65;2u"), [vk::A.value(), (kbmod::SHIFT | vk::A).value()]);
+        // Keys that also have a legacy encoding, for terminals that report both.
+        assert_eq!(
+            keys("\x1b[13;3u\x1b[27u"),
+            [(kbmod::ALT | vk::RETURN).value(), vk::ESCAPE.value()]
+        );
+        // Sub-parameters (here: the shifted key and the base layout key) are ignored,
+        // rather than running into the codepoint or the modifiers.
+        assert_eq!(keys("\x1b[109:77:109;5:1u"), [(kbmod::CTRL | vk::M).value()]);
+    }
+}

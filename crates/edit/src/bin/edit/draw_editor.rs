@@ -11,6 +11,7 @@ use edit::tui::*;
 use stdext::string_from_utf8_lossy_owned;
 
 use crate::localization::*;
+use crate::settings::MenuBarVisibility;
 use crate::state::*;
 
 pub fn draw_editor(ctx: &mut Context, state: &mut State) {
@@ -20,11 +21,16 @@ pub fn draw_editor(ctx: &mut Context, state: &mut State) {
 
     let size = ctx.size();
     // TODO: The layout code should be able to just figure out the height on its own.
-    let height_reduction = match state.wants_search.kind {
+    let mut height_reduction = match state.wants_search.kind {
         StateSearchKind::Search => 4,
         StateSearchKind::Replace => 5,
         _ => 2,
     };
+    // With no menubar row above us, its line goes to the document. Otherwise the
+    // whole stack comes up one row short and the statusbar floats off the bottom.
+    if state.menu_bar_visibility != MenuBarVisibility::Classic && !state.menu_bar_revealed {
+        height_reduction -= 1;
+    }
 
     if let Some(doc) = state.documents.active() {
         ctx.textarea("textarea", doc.buffer.clone());
