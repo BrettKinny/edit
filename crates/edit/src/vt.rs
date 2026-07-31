@@ -70,6 +70,9 @@ pub struct Parser {
     // Csi is not part of State, because it allows us
     // to more quickly erase and reuse the struct.
     csi: Csi,
+    // Whether we're inside a `:`-separated sub-parameter and so must discard digits.
+    // Kept here and not on the stack, because a sequence may be split across reads.
+    csi_subparam: bool,
 }
 
 impl Parser {
@@ -77,6 +80,7 @@ impl Parser {
         Self {
             state: State::Ground,
             csi: Csi { params: [0; 32], param_count: 0, private_byte: '\0', final_byte: '\0' },
+            csi_subparam: false,
         }
     }
 
@@ -192,6 +196,7 @@ impl<'input> Stream<'_, 'input> {
                         self.parser.state = State::Csi;
                         self.parser.csi.private_byte = '\0';
                         self.parser.csi.final_byte = '\0';
+                        self.parser.csi_subparam = false;
                         while self.parser.csi.param_count > 0 {
                             self.parser.csi.param_count -= 1;
                             self.parser.csi.params[self.parser.csi.param_count] = 0;
@@ -218,7 +223,9 @@ impl<'input> Stream<'_, 'input> {
                 State::Csi => {
                     loop {
                         // If we still have slots left, parse the parameter.
-                        if self.parser.csi.param_count < self.parser.csi.params.len() {
+                        if !self.parser.csi_subparam
+                            && self.parser.csi.param_count < self.parser.csi.params.len()
+                        {
                             let dst = &mut self.parser.csi.params[self.parser.csi.param_count];
                             while self.off < bytes.len() && bytes[self.off].is_ascii_digit() {
                                 let add = bytes[self.off] as u32 - b'0' as u32;
@@ -227,7 +234,10 @@ impl<'input> Stream<'_, 'input> {
                                 self.off += 1;
                             }
                         } else {
-                            // ...otherwise, skip the parameters until we find the final byte.
+                            // ...otherwise, skip the digits until we find the final byte.
+                            // Same for sub-parameters, which we don't store at all. Letting
+                            // their digits fall into the parameter above would silently
+                            // corrupt it: `38:2::255:0:0` would read as a single number.
                             while self.off < bytes.len() && bytes[self.off].is_ascii_digit() {
                                 self.off += 1;
                             }
@@ -252,7 +262,11 @@ impl<'input> Stream<'_, 'input> {
                                 }
                                 return Some(Token::Csi(&self.parser.csi));
                             }
-                            b';' => self.parser.csi.param_count += 1,
+                            b';' => {
+                                self.parser.csi.param_count += 1;
+                                self.parser.csi_subparam = false;
+                            }
+                            b':' => self.parser.csi_subparam = true,
                             b'<'..=b'?' => self.parser.csi.private_byte = c as char,
                             _ => {}
                         }

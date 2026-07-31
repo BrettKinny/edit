@@ -19,10 +19,15 @@ pub fn draw_menubar(ctx: &mut Context, state: &mut State) {
     // menubar isn't part of the tree and so can't consume its own shortcuts. Consuming
     // matters for Ctrl+M in particular: terminals encode it as Return unless they speak
     // CSI-u, and an unconsumed Return would insert a newline into the document.
+    //
+    // `Hidden` opts out of the menubar entirely, so the toggle stays out of the way there --
+    // including leaving Ctrl+M unconsumed, so that it keeps its usual meaning in the document.
     let mut wants_focus = false;
-    if ctx.consume_shortcut(vk::F10) || ctx.consume_shortcut(kbmod::CTRL | vk::M) {
+    if state.menu_bar_visibility != MenuBarVisibility::Hidden
+        && (ctx.consume_shortcut(vk::F10) || ctx.consume_shortcut(kbmod::CTRL | vk::M))
+    {
         state.menu_bar_revealed = false;
-        state.menu_bar_visibility = if state.menu_bar_visibility == MenuBarVisibility::Classic {
+        let visibility = if state.menu_bar_visibility == MenuBarVisibility::Classic {
             MenuBarVisibility::Toggle
         } else {
             // Showing it also moves focus there, so the keyboard can reach the menus
@@ -30,7 +35,7 @@ pub fn draw_menubar(ctx: &mut Context, state: &mut State) {
             wants_focus = true;
             MenuBarVisibility::Classic
         };
-        ctx.needs_rerender();
+        set_menu_bar_visibility(ctx, state, visibility);
     }
 
     if state.menu_bar_visibility != MenuBarVisibility::Classic && !state.menu_bar_revealed {
@@ -73,6 +78,17 @@ pub fn draw_menubar(ctx: &mut Context, state: &mut State) {
         state.menu_bar_revealed = false;
         ctx.needs_rerender();
     }
+}
+
+/// Shows or hides the menubar and writes the choice to settings.json, so that
+/// it's still in effect the next time the editor starts.
+fn set_menu_bar_visibility(ctx: &mut Context, state: &mut State, visibility: MenuBarVisibility) {
+    state.menu_bar_visibility = visibility;
+    if let Err(err) = Settings::store_menu_bar_visibility(visibility) {
+        // The menubar still toggles; only remembering it failed.
+        error_log_add(ctx, state, err);
+    }
+    ctx.needs_rerender();
 }
 
 /// Returns true if the pending input asks for a hidden menubar to be shown.
@@ -196,9 +212,9 @@ fn draw_menu_view(ctx: &mut Context, state: &mut State) {
     if ctx.menubar_menu_checkbox(loc(LocId::ViewMenuBar), 'M', kbmod::CTRL | vk::M, menu_bar) {
         // Unchecking hides the menubar, but leaves F10/Ctrl+M and the Alt
         // accelerators to bring it back. Otherwise there'd be no way to check it again.
-        state.menu_bar_visibility =
+        let visibility =
             if menu_bar { MenuBarVisibility::Toggle } else { MenuBarVisibility::Classic };
-        ctx.needs_rerender();
+        set_menu_bar_visibility(ctx, state, visibility);
     }
 
     ctx.menubar_menu_end();
